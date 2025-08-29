@@ -1,0 +1,57 @@
+{
+    "name": "huseyinfiliz/sort-changer",
+    "description": "Change default discussion sort order in Flarum",
+    "keywords": [
+        "flarum"
+    ],
+    "type": "flarum-extension",
+    "license": "MIT",
+    "require": {
+        "flarum/core": "^1.8.1"
+    },
+    "authors": [
+        {
+            "name": "Hüseyin Filiz",
+            "email": "mysuperuser01@gmail.com",
+            "role": "Developer"
+        }
+    ],
+    "autoload": {
+        "psr-4": {
+            "HuseyinFiliz\\SortChanger\\": "src/"
+        }
+    },
+    "extra": {
+        "flarum-extension": {
+            "title": "Sort Changer",
+            "category": "feature",
+            "icon": {
+                "name": "fas fa-sort",
+                "color": "#ffffff",
+                "backgroundColor": "#638df7"
+            }
+        },
+        "flarum-cli": {
+            "modules": {
+                "admin": true,
+                "forum": true,
+                "js": true,
+                "jsCommon": true,
+                "css": true,
+                "locale": true,
+                "gitConf": true,
+                "githubActions": false,
+                "prettier": true,
+                "typescript": false,
+                "bundlewatch": false,
+                "frontendTesting": false,
+                "backendTesting": false,
+                "phpstan": false,
+                "editorConfig": true,
+                "styleci": false
+            }
+        }
+    },
+    "minimum-stability": "dev",
+    "prefer-stable": true
+}
