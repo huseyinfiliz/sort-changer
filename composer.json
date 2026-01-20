@@ -28,7 +28,7 @@
             "icon": {
                 "name": "fas fa-sort",
                 "color": "#ffffff",
-                "backgroundColor": "#638df7"
+                "backgroundColor": "#3498db"
             }
         },
         "flarum-cli": {

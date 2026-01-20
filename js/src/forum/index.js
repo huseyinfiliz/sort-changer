@@ -1,125 +1,217 @@
-import { extend } from 'flarum/common/extend';
+import { extend, override } from 'flarum/common/extend';
 import app from 'flarum/forum/app';
 import IndexPage from 'flarum/forum/components/IndexPage';
+import DiscussionListState from 'flarum/forum/states/DiscussionListState';
 
 app.initializers.add('huseyinfiliz-sort-changer', () => {
-  console.log('[SortChanger] Uzantı başlatıldı');
-  let wasOnIndex = false;
+  const apiSortMap = {
+    'latest': '-lastPostedAt',
+    'oldest': 'createdAt',
+    'newest': '-createdAt',
+    'top': '-commentCount'
+  };
   
-  extend(IndexPage.prototype, 'oninit', function(vnode) {
-    // Tag veya arama parametresi varsa çık
-    if (m.route.param('tags') || m.route.param('q')) {
-      return;
+  const sortIndexMap = { 'latest': 0, 'top': 1, 'newest': 2, 'oldest': 3 };
+  
+  function isIndexPage() {
+    const routeName = app.current.get('routeName');
+    return routeName === 'index' || routeName === 'default';
+  }
+  
+  function getDefaultSort() {
+    return app.forum.attribute('sortChangerDefaultSort');
+  }
+  
+  // Sort map'i genişlet - latest'i ekle
+  override(DiscussionListState.prototype, 'sortMap', function(original) {
+    const map = original();
+    map['latest'] = '-lastPostedAt';
+    return map;
+  });
+  
+  // Dropdown'da doğru değeri göster
+  override(DiscussionListState.prototype, 'sortValue', function(original) {
+    if (!isIndexPage()) return original();
+    
+    const currentSort = this.params.sort;
+    if (currentSort) return currentSort;
+    
+    const defaultSort = getDefaultSort();
+    if (defaultSort && defaultSort !== 'latest') return defaultSort;
+    
+    return original();
+  });
+  
+  // API çağrısında sort parametresi
+  override(DiscussionListState.prototype, 'requestParams', function(original) {
+    const params = original();
+    if (!isIndexPage()) return params;
+    
+    const defaultSort = getDefaultSort();
+    const currentSort = this.params.sort;
+    
+    if (currentSort && apiSortMap[currentSort]) {
+      params.sort = apiSortMap[currentSort];
+    } else if (defaultSort && defaultSort !== 'latest') {
+      params.sort = apiSortMap[defaultSort];
     }
     
-    const defaultSort = app.forum.attribute('sortChangerDefaultSort');
+    return params;
+  });
+  
+  // Dropdown'u DOM ile güncelle
+  function updateDropdown(activeSort) {
+    if (!isIndexPage()) return;
+    
+    if (!activeSort) {
+      const currentSort = m.route.param('sort');
+      activeSort = currentSort || getDefaultSort();
+    }
+    
+    if (!activeSort || activeSort === 'latest') return;
+    
+    const targetIndex = sortIndexMap[activeSort];
+    if (targetIndex === undefined) return;
+    
+    const dropdownToggle = document.querySelector('.IndexPage-toolbar .Dropdown-toggle .Button-label');
+    const dropdownMenu = document.querySelector('.IndexPage-toolbar .Dropdown-menu');
+    
+    if (!dropdownToggle || !dropdownMenu) return;
+    
+    const listItems = dropdownMenu.querySelectorAll('li');
+    const targetButton = listItems[targetIndex]?.querySelector('button');
+    
+    if (targetButton) {
+      const targetLabel = targetButton.querySelector('.Button-label');
+      if (targetLabel) {
+        dropdownToggle.textContent = targetLabel.textContent;
+      }
+    }
+    
+    listItems.forEach((li, index) => {
+      const button = li.querySelector('button');
+      const icon = li.querySelector('.Button-icon');
+      
+      if (index === targetIndex) {
+        if (button) button.setAttribute('active', '');
+        if (icon) icon.classList.add('fas', 'fa-check');
+      } else {
+        if (button) button.removeAttribute('active');
+        if (icon) icon.classList.remove('fas', 'fa-check');
+      }
+    });
+  }
+  
+  // Liste görünürlüğü
+  function setListVisibility(ready) {
+    const container = document.querySelector('.IndexPage-results');
+    if (!container) return;
+    
+    container.classList.toggle('DiscussionList--loading-sort', !ready);
+    container.classList.toggle('DiscussionList--ready', ready);
+  }
+  
+  let initialLoad = true;
+  
+  // Anasayfa linklerine tıklandığında dropdown'u güncelle
+  document.addEventListener('click', (e) => {
+    const link = e.target.closest('a');
+    if (!link) return;
+    
+    const href = link.getAttribute('href');
+    const baseUrl = app.forum.attribute('baseUrl');
+    const defaultSort = getDefaultSort();
+    
+    const isHomeLink = href === '/' || 
+                       href === baseUrl || 
+                       href === baseUrl + '/' ||
+                       link.closest('.Header-logo');
+    
+    if (isHomeLink && defaultSort && defaultSort !== 'latest') {
+      requestAnimationFrame(() => updateDropdown(defaultSort));
+    }
+  }, true);
+  
+  // Index sayfası kontrolü
+  function shouldHandle() {
+    const routeName = app.current.get('routeName');
+    if (routeName !== 'index' && routeName !== 'default') return false;
+    if (m.route.param('tags') || m.route.param('q') || m.route.param('filter')) return false;
+    return true;
+  }
+  
+  // Parametresiz gelince varsayılana yönlendir
+  extend(IndexPage.prototype, 'oninit', function() {
+    if (!shouldHandle()) return;
+    
+    const defaultSort = getDefaultSort();
     const currentSort = m.route.param('sort');
     
-    // İlk yüklemede varsayılan sıralama parametresi varsa temizle
-    if (currentSort === defaultSort && !wasOnIndex) {
-      // URL'den sort parametresini temizle
-      const params = Object.assign({}, m.route.param() || {});
-      delete params.sort;
-      delete params.key;
+    if (!currentSort && defaultSort && defaultSort !== 'latest') {
+      const url = new URL(window.location.href);
+      url.searchParams.set('sort', defaultSort);
+      window.history.replaceState(null, '', url.toString());
       
-      // URL'i temizle (sıralama zaten uygulanmış durumda)
-      window.history.replaceState(null, '', app.route('index', params));
-    }
-    // Sort parametresi yoksa ve varsayılan ayar varsa
-    else if (!wasOnIndex && !currentSort && defaultSort && defaultSort !== 'latest') {
-      const params = Object.assign({}, m.route.param() || {});
-      delete params.key;
-      params.sort = defaultSort;
-      
-      setTimeout(() => {
-        m.route.set(app.route('index', params), true, { replace: true });
+      if (app.discussions) {
+        app.discussions.params.sort = defaultSort;
         
-        // Hemen URL'i temizle (varsayılan olduğu için)
-        setTimeout(() => {
-          window.history.replaceState(null, '', app.route('index', {}));
-        }, 50);
-      }, 0);
-    }
-    
-    wasOnIndex = true;
-  });
-  
-  extend(IndexPage.prototype, 'onremove', function() {
-    wasOnIndex = false;
-  });
-  
-  // Dropdown'daki Latest butonunu değiştir
-  extend(IndexPage.prototype, 'oncreate', function(vnode) {
-    // Tag veya arama parametresi varsa çık
-    if (m.route.param('tags') || m.route.param('q')) {
-      return;
-    }
-    
-    const defaultSort = app.forum.attribute('sortChangerDefaultSort');
-    
-    console.log('[SortChanger] oncreate - Dropdown aranıyor...');
-    
-    let attempts = 0;
-    const maxAttempts = 10;
-    
-    const checkAndModify = () => {
-      attempts++;
-      
-      let dropdownMenu = document.querySelector('.item-sort .Dropdown-menu');
-      if (!dropdownMenu) {
-        dropdownMenu = document.querySelector('.Dropdown-menu');
-      }
-      
-      if (dropdownMenu) {
-        const buttons = dropdownMenu.querySelectorAll('li button');
-        
-        buttons.forEach((button) => {
-          const label = button.querySelector('.Button-label');
-          const labelText = label ? label.textContent.trim() : '';
+        if (initialLoad) {
+          initialLoad = false;
+          requestAnimationFrame(() => setListVisibility(false));
           
-          if (labelText === 'Latest') {
-            button.onclick = (e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              
-              console.log('[SortChanger] Latest tıklandı!');
-              
-              // Eğer latest varsayılan ise URL'e ekleme
-              if (defaultSort === 'latest') {
-                // Sadece sıralamayı değiştir, URL'e ekleme
-                if (app.discussions) {
-                  app.discussions.refreshParams({sort: ''});
-                  app.discussions.refresh();
-                }
-              } else {
-                // Latest varsayılan değilse URL'e ekle
-                const params = Object.assign({}, m.route.param() || {});
-                delete params.key;
-                params.sort = 'latest';
-                
-                m.route.set(app.route('index', params));
-                
-                if (app.discussions) {
-                  app.discussions.refreshParams({sort: ''});
-                  app.discussions.refresh();
-                }
-              }
-              
-              // Dropdown'u kapat
-              const dropdown = button.closest('.Dropdown');
-              if (dropdown) {
-                dropdown.classList.remove('open');
-              }
-            };
-            
-            console.log('[SortChanger] Latest butonu güncellendi!');
-          }
-        });
-      } else if (attempts < maxAttempts) {
-        setTimeout(checkAndModify, 500);
+          app.discussions.clear();
+          app.discussions.refresh().then(() => {
+            setListVisibility(true);
+            m.redraw();
+          });
+        }
       }
-    };
-    
-    setTimeout(checkAndModify, 500);
+    }
   });
+  
+  // Dropdown güncelleme
+  extend(IndexPage.prototype, 'oncreate', function() {
+    if (!shouldHandle()) return;
+    
+    const defaultSort = getDefaultSort();
+    const currentSort = m.route.param('sort');
+    
+    if (!currentSort && defaultSort && defaultSort !== 'latest') {
+      requestAnimationFrame(() => updateDropdown(defaultSort));
+    }
+    
+    setTimeout(updateDropdown, 100);
+  });
+  
+  extend(IndexPage.prototype, 'onupdate', function() {
+    if (!shouldHandle()) return;
+    requestAnimationFrame(updateDropdown);
+  });
+  
+  // Latest butonuna tıklandığında ?sort=latest ekle
+  document.addEventListener('click', (e) => {
+    if (!isIndexPage()) return;
+    
+    const dropdownButton = e.target.closest('.Dropdown-menu button');
+    if (!dropdownButton) return;
+    
+    const dropdownMenu = dropdownButton.closest('.Dropdown-menu');
+    if (!dropdownMenu) return;
+    
+    const allButtons = dropdownMenu.querySelectorAll('button');
+    const buttonIndex = Array.from(allButtons).indexOf(dropdownButton);
+    
+    if (buttonIndex === 0) {
+      const defaultSort = getDefaultSort();
+      
+      if (defaultSort && defaultSort !== 'latest') {
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        
+        m.route.set(app.route('index', { sort: 'latest' }));
+        return false;
+      }
+    }
+  }, true);
 });
